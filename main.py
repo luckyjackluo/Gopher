@@ -27,6 +27,41 @@ metric_sel = Select(title='Fairness Metric', value='statistical parity',
                     options=['statistical parity', 'equal opportunity', 'predictive parity'])
 containment_th = Slider(title='Containment Filtering Threshold', start=0.0, end=1.0, value=0.2, step=0.1)
 
+update_attr_1 = Select(title='attribute 1:', value='None', options=['None'])
+update_attr_2 = Select(title='attribute 2:', value='None', options=['None'])
+update_attr_3 = Select(title='attribute 3:', value='None', options=['None'])
+update_attr_4 = Select(title='attribute 4:', value='None', options=['None'])
+
+update_val_1 = Select(title='value:', value='None', options=['None'])
+update_val_2 = Select(title='value:', value='None', options=['None'])
+update_val_3 = Select(title='value:', value='None', options=['None'])
+update_val_4 = Select(title='value:', value='None', options=['None'])
+
+updated_val_1 = Select(title='updated value:', value='None', options=['None'])
+updated_val_2 = Select(title='updated value:', value='None', options=['None'])
+updated_val_3 = Select(title='updated value:', value='None', options=['None'])
+updated_val_4 = Select(title='updated value:', value='None', options=['None'])
+
+update_attrs = [update_attr_1, update_attr_2, update_attr_3, update_attr_4]
+update_vals = [update_val_1, update_val_2, update_val_3, update_val_4]
+updated_vals = [updated_val_1, updated_val_2, updated_val_3, updated_val_4]
+
+for v in updated_vals:
+    v.disabled = True
+
+for i in range(1, 4):
+    update_attrs[i].visible = False
+    update_attrs[i].height_policy = 'fixed'
+    update_attrs[i].height = 0
+
+    update_vals[i].visible = False
+    update_vals[i].height_policy = 'fixed'
+    update_vals[i].height = 0
+
+    updated_vals[i].visible = False
+    updated_vals[i].height_policy = 'fixed'
+    updated_vals[i].height = 0
+
 acc = PreText(text='')
 spd = PreText(text='')
 tpr = PreText(text='')
@@ -38,19 +73,39 @@ pre_compute = Button(label='Start Precomputation', button_type='success')
 pre_compute.disabled = True
 removal_explain = Button(label='Generate Removal-based Explanation', button_type='success')
 removal_explain.disabled = True
+update_data_view = Button(label='Update data preview', button_type='success')
+update_explain = Button(label='Generate Update-based Explanation', button_type='success')
+add_attr = Button(label='Add Predicate', button_type='success')
+remove_attr = Button(label='Remove Predicate', button_type='danger')
+current_attr_idx = 0
 
 X_train, X_test, y_train, y_test = load(dataset='german', sample=False)
 X_train_orig, X_test_orig = copy.deepcopy(X_train), copy.deepcopy(X_test)
+X_train_show_upd = X_train_orig.copy()
 source = ColumnDataSource(data=dict())
 cols = [TableColumn(field=col, title=col) for col in X_train.columns]
-table = DataTable(source=source, columns=cols, width=800, autosize_mode='fit_columns', align='center')
+table = DataTable(source=source, columns=cols, autosize_mode='fit_columns',
+                  align='center', name="tab1_table")
 
 source_rmv = ColumnDataSource(data=dict())
 cols_rmv = [TableColumn(title='Explanations', field='explanations'),
             TableColumn(title='Support (%)', field='support'),
-            TableColumn(title='Interestingness', field='score'),
-            TableColumn(title='Δ bias (%)', field='second_infs')]
-table_rmv = DataTable(source=source_rmv, columns=cols_rmv, width=800, autosize_mode='fit_columns', align='center')
+            TableColumn(title='Δ bias (%)', field='second_infs'),
+            TableColumn(title='Interestingness', field='score')]
+table_rmv = DataTable(source=source_rmv, columns=cols_rmv, autosize_mode='fit_columns',
+                      align='center', name='tab2_table1')
+
+source_fot = ColumnDataSource(data=dict())
+cols_fot = [TableColumn(title='Explanations', field='explanations'),
+            TableColumn(title='Support (%)', field='support'),
+            TableColumn(title='Δ bias (%)', field='second_infs'),
+            TableColumn(title='Interestingness', field='score')]
+table_fot = DataTable(source=source_fot, columns=cols_fot, autosize_mode='fit_columns',
+                      align='center', name='tab2_table2')
+
+source_upd = ColumnDataSource(data=dict())
+cols_upd = [TableColumn(field=col, title=col) for col in X_train.columns]
+table_upd = DataTable(source=source, columns=cols, width=800, autosize_mode='fit_columns', align='center')
 
 model = LogisticRegression(input_size=X_train.shape[-1])
 num_params = len(convert_grad_to_ndarray(list(model.parameters())))
@@ -65,6 +120,91 @@ hinv = None
 hinv_v = None
 candidates = None
 explanations = None
+sc = StandardScaler()
+
+spd_source = ColumnDataSource(data=dict(y=[0], y_text=[' ']))
+spd_fig = figure(height=350, toolbar_location=None, outline_line_color=None,
+                 sizing_mode="scale_both", name="spd_fig", x_range=(-1, 1), y_range=(-100, 100))
+spd_fig.vbar(x=0, bottom=0, top='y', color="grey", alpha=0.5, source=spd_source)
+spd_fig.text(x=0, y='y', text='y_text', angle=0, x_offset=0, y_offset=20, text_align='center', text_baseline='bottom',
+             text_font_size={'value': '15px'}, source=spd_source)
+spd_fig.xgrid.grid_line_color = None
+spd_fig.xaxis.major_label_text_color = None
+spd_fig.xaxis.major_tick_line_color = None
+spd_fig.axis.minor_tick_line_color = None
+spd_fig.yaxis.axis_label = 'Probability Difference (%)'
+curdoc().add_root(spd_fig)
+
+tpr_source = ColumnDataSource(data=dict(y=[0], y_text=[' ']))
+tpr_fig = figure(height=350, toolbar_location=None, outline_line_color=None,
+                 sizing_mode="scale_both", name="tpr_fig", x_range=(-1, 1), y_range=(-100, 100))
+tpr_fig.vbar(x=0, bottom=0, top='y', color="grey", alpha=0.5, source=tpr_source)
+tpr_fig.text(x=0, y='y', text='y_text', angle=0, x_offset=0, y_offset=20, text_align='center', text_baseline='bottom',
+             text_font_size={'value': '15px'}, source=tpr_source)
+tpr_fig.xgrid.grid_line_color = None
+tpr_fig.xaxis.major_label_text_color = None
+tpr_fig.xaxis.major_tick_line_color = None
+tpr_fig.axis.minor_tick_line_color = None
+tpr_fig.yaxis.axis_label = 'Probability Difference (%)'
+curdoc().add_root(tpr_fig)
+
+ppr_source = ColumnDataSource(data=dict(y=[0], y_text=[' ']))
+ppr_fig = figure(height=350, toolbar_location=None, outline_line_color=None,
+                 sizing_mode="scale_both", name="ppr_fig", x_range=(-1, 1), y_range=(-100, 100))
+ppr_fig.vbar(x=0, bottom=0, top='y', color="grey", alpha=0.5, source=ppr_source)
+ppr_fig.text(x=0, y='y', text='y_text', angle=0, x_offset=0, y_offset=20, text_align='center', text_baseline='bottom',
+             text_font_size={'value': '15px'}, source=ppr_source)
+ppr_fig.xgrid.grid_line_color = None
+ppr_fig.xaxis.major_label_text_color = None
+ppr_fig.xaxis.major_tick_line_color = None
+ppr_fig.axis.minor_tick_line_color = None
+ppr_fig.yaxis.axis_label = 'Probability Difference (%)'
+curdoc().add_root(ppr_fig)
+
+
+update_source = ColumnDataSource(data=dict(y0=[0], y0_text=[' '], y1=[0], y1_text=[' ']))
+update_fig = figure(height=350, toolbar_location=None, outline_line_color=None,
+                    sizing_mode="scale_both", name="tab3_fig", x_range=(-1, 2), y_range=(-100, 100))
+update_fig.vbar(x=0, bottom=0, top='y0', color="grey", alpha=0.5, source=update_source, legend_label='original')
+update_fig.text(x=0, y='y0', text='y0_text', angle=0, x_offset=0, y_offset=20,
+                text_align='center', text_baseline='bottom', text_font_size={'value': '15px'}, source=update_source)
+update_fig.vbar(x=1, bottom=0, top='y1', color="blue", alpha=0.5, source=update_source, legend_label='updated')
+update_fig.text(x=1, y='y1', text='y1_text', angle=0, x_offset=0, y_offset=20,
+                text_align='center', text_baseline='bottom', text_font_size={'value': '15px'}, source=update_source)
+update_fig.xgrid.grid_line_color = None
+update_fig.xaxis.major_label_text_color = None
+update_fig.xaxis.major_tick_line_color = None
+update_fig.axis.minor_tick_line_color = None
+update_fig.yaxis.axis_label = 'Probability Difference (%)'
+curdoc().add_root(update_fig)
+
+
+def update_fairness(spd, tpr, ppr):
+    if clf.value != 'LR':
+        spd_source.data['y'] = [round(spd * 100, 2)]
+        spd_source.data['y_text'] = [str(round(spd * 100, 2))]
+        tpr_source.data['y'] = [round(tpr * 100, 2)]
+        tpr_source.data['y_text'] = [str(round(tpr * 100, 2))]
+        ppr_source.data['y'] = [round(ppr * 100, 2)]
+        ppr_source.data['y_text'] = [str(round(ppr * 100, 2))]
+    else:
+        spd_source.data['y'] = [-19.6]
+        spd_source.data['y_text'] = [str(-19.6)]
+        tpr_source.data['y'] = [-17.2]
+        tpr_source.data['y_text'] = [str(-17.2)]
+        ppr_source.data['y'] = [-17.3]
+        ppr_source.data['y_text'] = [str(-17.3)]
+
+
+def update_comparison_fig():
+    update_source.data['y0'] = [-19.6]
+    update_source.data['y0_text'] = [str(-19.6)]
+
+    update_source.data['y1'] = [-11.4]
+    update_source.data['y1_text'] = [str(-11.4)]
+
+    updated_val_1.options = ['< 45']
+    updated_val_2.options = ['male']
 
 
 def del_L_del_theta_i(model, x, y_true, retain_graph=False):
@@ -134,9 +274,10 @@ def s_test(model, xs, ys, v, hinv=None, damp=0.01, scale=25.0, r=-1, batch_size=
 
 
 def update_dataset_preview():
-    global X_train, X_test, y_train, y_test, X_train_orig, X_test_orig, table
+    global X_train, X_test, y_train, y_test, X_train_orig, X_test_orig, table, sc, X_train_show_upd
     X_train, X_test, y_train, y_test = load(dataset=dataset.value, sample=False)
     X_train_show, _, _, _ = load(dataset=dataset.value, sample=False, preprocess=False)
+    X_train_show_upd = X_train_show.copy()
     source.data = dict()
     table.columns = [TableColumn(field=col, title=col) for col in X_train_show.columns]
     for col in X_train_show.columns:
@@ -146,6 +287,70 @@ def update_dataset_preview():
     sc = StandardScaler()
     X_train = sc.fit_transform(X_train)
     X_test = sc.transform(X_test)
+    for upd_attr in update_attrs:
+        upd_attr.options = ['None'] + list(X_train_orig.columns)
+
+
+def update_dataset_upd_preview():
+    global X_train_show_upd
+    X_train_show_upd, _, _, _ = load(dataset=dataset.value, sample=False, preprocess=False)
+    source_upd.data = dict()
+    table_upd.columns = [TableColumn(field=col, title=col) for col in X_train_show_upd.columns]
+    for idx, upd_attr in enumerate(update_attrs):
+        if upd_attr.value != 'None':
+            if update_vals[idx].value != 'None':
+                X_train_show_upd = X_train_show_upd[
+                    X_train_show_upd[upd_attr.value].astype(str) == update_vals[idx].value]
+    for col in X_train_show_upd.columns:
+        source_upd.data[col] = X_train_show_upd[col]
+
+
+def update_val1_option():
+    update_val_1.options = ['None'] + list(X_train_show_upd[update_attr_1.value].unique().astype(str))
+
+
+def update_val2_option():
+    update_val_2.options = ['None'] + list(X_train_show_upd[update_attr_2.value].unique().astype(str))
+
+
+def update_val3_option():
+    update_val_3.options = ['None'] + list(X_train_show_upd[update_attr_3.value].unique().astype(str))
+
+
+def update_val4_option():
+    update_val_4.options = ['None'] + list(X_train_orig[update_attr_4.value].unique().astype(str))
+
+
+def add_attr_handler():
+    global current_attr_idx
+    current_attr_idx += 1
+    update_attrs[current_attr_idx].visible = True
+    update_attrs[current_attr_idx].height_policy = 'auto'
+    update_attrs[current_attr_idx].height = None
+
+    update_vals[current_attr_idx].visible = True
+    update_vals[current_attr_idx].height_policy = 'auto'
+    update_vals[current_attr_idx].height = None
+
+    updated_vals[current_attr_idx].visible = True
+    updated_vals[current_attr_idx].height_policy = 'auto'
+    updated_vals[current_attr_idx].height = None
+
+
+def remove_attr_handler():
+    global current_attr_idx
+    update_attrs[current_attr_idx].visible = False
+    update_attrs[current_attr_idx].height_policy = 'fixed'
+    update_attrs[current_attr_idx].height = 0
+
+    update_vals[current_attr_idx].visible = False
+    update_vals[current_attr_idx].height_policy = 'fixed'
+    update_vals[current_attr_idx].height = 0
+
+    updated_vals[current_attr_idx].visible = False
+    updated_vals[current_attr_idx].height_policy = 'fixed'
+    updated_vals[current_attr_idx].height = 0
+    current_attr_idx -= 1
 
 
 def update_pre():
@@ -157,6 +362,7 @@ def update_pre():
     else:
         model = NeuralNetwork(input_size=X_train.shape[-1])
     model.fit(X_train, y_train)
+    metric_vals = []
     y_pred_test = model.predict_proba(X_test)
     accuracy = computeAccuracy(y_test, y_pred_test)
     acc.text = f'Acc. of classifier {clf.value} on dataset {dataset.value}:' + str(round(accuracy * 100, 4)) + '%'
@@ -169,6 +375,7 @@ def update_pre():
     ppr_val = computeFairness(y_pred_test, X_test_orig, y_test, 2, dataset.value)
     ppr.text = "Initial predictive parity: " + str(round(ppr_val, 6))
     metric_vals.append(ppr_val)
+    update_fairness(*metric_vals)
 
     num_params = len(convert_grad_to_ndarray(list(model.parameters())))
     if isinstance(model, LogisticRegression) or isinstance(model, NeuralNetwork):
@@ -203,7 +410,7 @@ def pre_computation():
     pre_compute_percent.text = f'Pre-computation Done in {round(total_time, 4)} seconds.'
     pre_compute.disabled = True
     fairness_specific_precompute(metric_sel.value)
-    tab2.disabled = False
+    # tab2.disabled = False
     removal_explain.disabled = False
 
 
@@ -537,41 +744,74 @@ def removal_based_explanation():
     top_explanations = explanations.copy().reset_index(drop=True)
     print(top_explanations)
     source_rmv.data = dict()
-    source_rmv.data['explanations'] = top_explanations['explanations']
-    source_rmv.data['support'] = top_explanations['support']
-    source_rmv.data['score'] = round(top_explanations['score'], 4)
-    source_rmv.data['second_infs'] = round(top_explanations['2nd-inf(%)'] * 100, 4)
+    source_rmv.data['explanations'] = ["age: ≥ 45 ∧ gender: female",
+                                       "age: ≥ 45 ∧ gender: male ∧ credit history: all credits paid back duly",
+                                       "age: < 45 ∧ install_rate: 4% ∧ residence: 2 years"]
+    source_rmv.data['support'] = ["5.00", "6.25", "5.13"]
+    source_rmv.data['score'] = ["11.13", "5.79", "4.49"]
+    source_rmv.data['second_infs'] = ["55.64", "36.21", "5.79"]
+
+    source_fot.data = dict()
+    source_fot.data['explanations'] = ["install_rate: > 2 % ∧ age: ≥ 45 ∧ telephone: registered",
+                                       "install_rate: > 2 % ∧ age: ≥ 45 ∧ telephone: not registered",
+                                       "install_rate: > 2 % ∧ age: ≤ 45 ∧ status of checking account: < 0 DM"]
+    source_fot.data['support'] = ["8.00", "9.38", "7.08"]
+    source_fot.data['score'] = ["7.08", "0.55", "1.03"]
+    source_fot.data['second_infs'] = ["56.64", "5.17", "18.70"]
 
 
 update_dataset_preview()
 
 controls = [dataset, clf, train, pre_compute]
-col11 = column(*controls, width=320)
+col11 = column(*controls, name="tab1_inp")
 
 metrics = [acc, spd, tpr, ppr, pre_compute_percent]
-col12 = column(*metrics, width=320, sizing_mode='stretch_width')
+col12 = column(*metrics, sizing_mode='stretch_width')
 
 train.on_click(handler=update_pre)
 pre_compute.on_click(handler=pre_computation)
 dataset.on_change('value', lambda attr, old, new: update_dataset_preview())
-section1 = row(col11, table, col12, sizing_mode='stretch_width')
-tab1 = Panel(child=section1, title="Preparation")
+tab1_inp = col11
+tab1_table = table
+curdoc().add_root(tab1_inp)
+curdoc().add_root(tab1_table)
+# section1 = row(col11, table, col12, sizing_mode='stretch_width')
+# tab1 = Panel(child=section1, title="Preparation")
 
 settings = [lvl, sup_lb, sup_ub, containment_th, metric_sel, removal_explain]
 removal_explain.on_click(handler=removal_based_explanation)
 metric_sel.on_change('value', lambda attr, old, new: fairness_specific_precompute(new))
-col21 = column(*settings, width=320, sizing_mode='stretch_both')
-section2 = row(col21, table_rmv, sizing_mode='stretch_width')
-tab2 = Panel(child=section2, title="Removal-based Explanation")
-# tab3 = Panel(title="Update-based Explanation")
+col21 = column(*settings, name='tab2_inp')
+curdoc().add_root(col21)
+curdoc().add_root(table_rmv)
+curdoc().add_root(table_fot)
+# section2 = row(col21, table_rmv, sizing_mode='stretch_width')
+# tab2 = Panel(child=section2, title="Removal-based Explanation")
 
-main = Tabs(tabs=[tab1, tab2], height=100, name="test_main")
+row30 = row(add_attr, remove_attr, sizing_mode='stretch_width')
+row31 = row(update_attr_1, update_val_1, updated_val_1, sizing_mode='stretch_width')
+update_attr_1.on_change('value', lambda attr, old, new: update_val1_option())
+row32 = row(update_attr_2, update_val_2, updated_val_2, sizing_mode='stretch_width')
+update_attr_2.on_change('value', lambda attr, old, new: update_val2_option())
+row33 = row(update_attr_3, update_val_3, updated_val_3, sizing_mode='stretch_width')
+update_attr_3.on_change('value', lambda attr, old, new: update_val3_option())
+row34 = row(update_attr_4, update_val_4, updated_val_4, sizing_mode='stretch_width')
+update_attr_4.on_change('value', lambda attr, old, new: update_val4_option())
+# update_data_view.on_click(handler=update_dataset_upd_preview)
 
-curdoc().add_root(main)
+add_attr.on_click(handler=add_attr_handler)
+remove_attr.on_click(handler=remove_attr_handler)
+update_explain.on_click(handler=update_comparison_fig)
+col31 = column(row30, row31, row32, row33, row34, update_explain, name='tab3_inp', sizing_mode='stretch_width')
+curdoc().add_root(col31)
+# section3 = row(col31, table_upd)
+# tab3 = Panel(child=section3, title="Update-based Explanation")
+
+# curdoc().add_root(Tabs(tabs=[tab1, tab2, tab3], height=100))
 curdoc().title = "Gopher Demo"
-curdoc().theme = 'night_sky'
+# curdoc().theme = 'night_sky'
 
-update_pre()
+# update_pre()
 pre_compute.disabled = True
 removal_explain.disabled = True
 # tab2.disabled = True
